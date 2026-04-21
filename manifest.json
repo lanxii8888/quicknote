@@ -1,0 +1,41 @@
+{
+  "manifest_version": 3,
+  "name": "轻笔记",
+  "short_name": "轻笔记",
+  "description": "浏览器轻量化本地笔记工具，无需登录、自动保存，快速记录临时信息",
+  "version": "1.1.0",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "default_title": "轻笔记 - 快速记录"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "permissions": [
+    "storage",
+    "sidePanel"
+  ],
+  "commands": {
+    "toggle-sidepanel": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "唤起轻笔记"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

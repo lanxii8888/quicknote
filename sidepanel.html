@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>轻笔记</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <!-- ── Left: Page List ── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">
+        <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
+          <rect x="2" y="2" width="14" height="14" rx="2.5" fill="var(--cream)" stroke="var(--sage)" stroke-width="1.2"/>
+          <line x1="5" y1="6.5" x2="13" y2="6.5" stroke="var(--line)" stroke-width="1" stroke-linecap="round"/>
+          <line x1="5" y1="9"   x2="13" y2="9"   stroke="var(--line)" stroke-width="1" stroke-linecap="round"/>
+          <line x1="5" y1="11.5" x2="10" y2="11.5" stroke="var(--line)" stroke-width="1" stroke-linecap="round"/>
+          <circle cx="5" cy="6.5" r="1.2" fill="var(--sage)"/>
+        </svg>
+        <span class="brand-name">轻笔记</span>
+      </div>
+      <button class="btn-add-page" id="btnAddPage" title="新建笔记">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 2v10M2 7h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="page-list" id="pageList"></div>
+
+    <div class="sidebar-footer">
+      <div class="save-indicator" id="saveIndicator">
+        <span class="save-dot" id="saveDot"></span>
+        <span class="save-text" id="saveText">已保存</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Right: Editor ── -->
+  <main class="editor-pane">
+    <!-- Title bar -->
+    <div class="title-bar">
+      <!-- Sidebar toggle -->
+      <button class="btn-sidebar-toggle" id="btnSidebarToggle" title="切换页面列表">
+        <svg class="icon-menu" width="15" height="15" viewBox="0 0 15 15" fill="none">
+          <rect x="1.5" y="3"   width="12" height="1.2" rx="0.6" fill="currentColor"/>
+          <rect x="1.5" y="7"   width="8"  height="1.2" rx="0.6" fill="currentColor"/>
+          <rect x="1.5" y="11"  width="12" height="1.2" rx="0.6" fill="currentColor"/>
+        </svg>
+        <svg class="icon-close" width="15" height="15" viewBox="0 0 15 15" fill="none">
+          <path d="M3 3l9 9M12 3l-9 9" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </button>
+
+      <div class="title-divider"></div>
+
+      <input
+        class="page-title-input"
+        id="pageTitleInput"
+        type="text"
+        placeholder="无标题"
+        maxlength="40"
+        spellcheck="false"
+      />
+      <div class="title-bar-meta">
+        <span class="char-count" id="charCount">0 字</span>
+        <button class="btn-icon btn-copy" id="btnCopy" title="复制内容">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+            <rect x="4.5" y="4.5" width="8" height="8" rx="1.5" stroke="currentColor" stroke-width="1.2"/>
+            <path d="M3.5 9.5H3a1.5 1.5 0 01-1.5-1.5V3A1.5 1.5 0 013 1.5h5A1.5 1.5 0 019.5 3v.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <button class="btn-icon btn-delete-page" id="btnDeletePage" title="删除此页">
+          <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+            <path d="M2.5 4h9M5 4V3a.5.5 0 01.5-.5h3a.5.5 0 01.5.5v1M11 4l-.5 7.1a1 1 0 01-1 .9H4.5a1 1 0 01-1-.9L3 4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Paper writing area -->
+    <div class="paper-wrap">
+      <div class="paper-margin"></div>
+      <div class="paper-body">
+        <textarea
+          class="editor"
+          id="noteEditor"
+          placeholder="开始记录…"
+          spellcheck="false"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
+        ></textarea>
+        <div class="ruled-lines" id="ruledLines" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <!-- Empty state -->
+    <div class="empty-state" id="emptyState" hidden>
+      <div class="empty-icon">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+          <rect x="8" y="8" width="32" height="32" rx="6" stroke="var(--line)" stroke-width="1.5"/>
+          <line x1="14" y1="18" x2="34" y2="18" stroke="var(--line)" stroke-width="1.2" stroke-linecap="round"/>
+          <line x1="14" y1="24" x2="34" y2="24" stroke="var(--line)" stroke-width="1.2" stroke-linecap="round"/>
+          <line x1="14" y1="30" x2="26" y2="30" stroke="var(--line)" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <p class="empty-title">还没有笔记</p>
+      <p class="empty-sub">点击左上角 + 新建第一页</p>
+    </div>
+  </main>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Delete confirm overlay -->
+  <div class="overlay" id="overlay" hidden>
+    <div class="confirm-card">
+      <div class="confirm-icon">
+        <svg width="30" height="30" viewBox="0 0 30 30" fill="none">
+          <circle cx="15" cy="15" r="13.5" stroke="var(--red-soft)" stroke-width="1.4"/>
+          <path d="M15 9v8M15 20.5v1" stroke="var(--red-soft)" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <p class="confirm-title" id="confirmTitle">删除此页？</p>
+      <p class="confirm-sub">内容将被永久删除，无法恢复</p>
+      <div class="confirm-actions">
+        <button class="btn-cancel" id="btnCancel">取消</button>
+        <button class="btn-confirm" id="btnConfirm">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script src="sidepanel.js"></script>
+</body>
+</html>
