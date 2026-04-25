@@ -37,12 +37,12 @@ const ruledLines      = document.getElementById('ruledLines');
 // ═══════════════════════════════════════
 // Sidebar toggle
 // ═══════════════════════════════════════
-function setSidebarOpen(open, save = true) {
+async function setSidebarOpen(open, save = true) {
   sidebarOpen = open;
   sidebarEl.classList.toggle('collapsed', !open);
   appEl.classList.toggle('sidebar-open', open);
   btnSidebarToggle.title = open ? '收起页面列表' : '展开页面列表';
-  if (save) chrome.storage.local.set({ sidebarOpen: open });
+  if (save) await saveSettings('sidebarOpen', open);
 }
 
 function toggleSidebar() {
@@ -65,44 +65,181 @@ function getPage(id) {
 }
 
 // ═══════════════════════════════════════
+// IndexedDB Storage
+// ═══════════════════════════════════════
+const DB_NAME = 'quicknote';
+const DB_VERSION = 1;
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => resolve(request.result);
+    
+    request.onupgradeneeded = (event) => {
+      const db = event.target.result;
+      
+      if (!db.objectStoreNames.contains('pages')) {
+        db.createObjectStore('pages', { keyPath: 'id' });
+      }
+      
+      if (!db.objectStoreNames.contains('settings')) {
+        db.createObjectStore('settings');
+      }
+    };
+  });
+}
+
+async function savePages() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction('pages', 'readwrite');
+    const store = tx.objectStore('pages');
+    
+    for (const page of pages) {
+      await store.put(page);
+    }
+    
+    await tx.complete;
+    return true;
+  } catch (error) {
+    console.error('Error saving pages:', error);
+    return false;
+  }
+}
+
+async function saveSettings(key, value) {
+  try {
+    const db = await openDB();
+    const tx = db.transaction('settings', 'readwrite');
+    const store = tx.objectStore('settings');
+    
+    await store.put(value, key);
+    await tx.complete;
+    return true;
+  } catch (error) {
+    console.error('Error saving settings:', error);
+    return false;
+  }
+}
+
+async function loadPages() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction('pages', 'readonly');
+    const store = tx.objectStore('pages');
+    const allPages = await store.getAll();
+    
+    return allPages.length > 0 ? allPages : [createPage('笔记 1', '')];
+  } catch (error) {
+    console.error('Error loading pages:', error);
+    return [createPage('笔记 1', '')];
+  }
+}
+
+async function loadSetting(key, defaultValue) {
+  try {
+    const db = await openDB();
+    const tx = db.transaction('settings', 'readonly');
+    const store = tx.objectStore('settings');
+    const value = await store.get(key);
+    
+    return value !== undefined ? value : defaultValue;
+  } catch (error) {
+    console.error('Error loading setting:', error);
+    return defaultValue;
+  }
+}
+
+// ═══════════════════════════════════════
 // Storage
 // ═══════════════════════════════════════
 function persist() {
   setSaveState('saving');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    chrome.storage.local.set({ pages, activeId }, () => {
-      setSaveState(chrome.runtime.lastError ? 'unsaved' : 'saved');
-    });
+  saveTimer = setTimeout(async () => {
+    const success = await savePages();
+    await saveSettings('activeId', activeId);
+    setSaveState(success ? 'saved' : 'unsaved');
   }, 280);
 }
 
-function loadAll() {
-  chrome.storage.local.get(['pages', 'activeId', 'sidebarOpen'], (result) => {
-    // Restore pages
-    pages = Array.isArray(result.pages) && result.pages.length > 0
-      ? result.pages
-      : [createPage('笔记 1', '')];
-
-    activeId = result.activeId || pages[0].id;
+async function loadAll() {
+  try {
+    // 检查是否需要从 chrome.storage.local 迁移
+    const migrationNeeded = await checkMigrationNeeded();
+    if (migrationNeeded) {
+      await migrateFromChromeStorage();
+    }
+    
+    pages = await loadPages();
+    activeId = await loadSetting('activeId', pages[0].id);
     if (!getPage(activeId)) activeId = pages[0].id;
-
-    // Restore sidebar state (default: closed)
-    const storedOpen = result.sidebarOpen;
-    setSidebarOpen(storedOpen === true, false);
-
+    
+    const sidebarOpen = await loadSetting('sidebarOpen', false);
+    setSidebarOpen(sidebarOpen, false);
+    
     renderSidebar();
     switchTo(activeId, false);
     setSaveState('saved');
-  });
+  } catch (error) {
+    console.error('Error loading data:', error);
+    // 降级到默认数据
+    pages = [createPage('笔记 1', '')];
+    activeId = pages[0].id;
+    setSidebarOpen(false, false);
+    renderSidebar();
+    switchTo(activeId, false);
+    setSaveState('saved');
+  }
+}
+
+// 迁移相关函数
+async function checkMigrationNeeded() {
+  try {
+    const db = await openDB();
+    const tx = db.transaction('settings', 'readonly');
+    const store = tx.objectStore('settings');
+    const migrated = await store.get('migrated');
+    return migrated !== true;
+  } catch (error) {
+    return true;
+  }
+}
+
+async function migrateFromChromeStorage() {
+  try {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['pages', 'activeId', 'sidebarOpen'], async (result) => {
+        if (result.pages) {
+          pages = result.pages;
+          await savePages();
+        }
+        if (result.activeId) {
+          activeId = result.activeId;
+          await saveSettings('activeId', activeId);
+        }
+        if (result.sidebarOpen !== undefined) {
+          await saveSettings('sidebarOpen', result.sidebarOpen);
+        }
+        
+        // 标记迁移完成
+        await saveSettings('migrated', true);
+        resolve();
+      });
+    });
+  } catch (error) {
+    console.error('Migration error:', error);
+  }
 }
 
 // ═══════════════════════════════════════
 // Page CRUD
 // ═══════════════════════════════════════
-function createPage(title, content) {
+function createPage(title, content, color) {
   const now = Date.now();
-  return { id: uid(), title: title || '', content: content || '', createdAt: now, updatedAt: now };
+  return { id: uid(), title: title || '', content: content || '', color: color || '#5C8E6B', createdAt: now, updatedAt: now };
 }
 
 function addPage() {
@@ -180,11 +317,19 @@ function renderSidebar() {
   pageListEl.innerHTML = '';
   const hasPagesFlag = pages.length > 0;
   btnSidebarToggle.classList.toggle('has-pages', hasPagesFlag);
+  
+  // 当只有一个页面时，禁用顶部删除按钮
+  btnDeletePage.disabled = pages.length <= 1;
 
   pages.forEach((p) => {
     const item = document.createElement('div');
     item.className = 'page-item' + (p.id === activeId ? ' active' : '');
     item.dataset.id = p.id;
+    
+    // 设置页面左侧色块颜色
+    if (p.color) {
+      item.style.setProperty('--page-color', p.color);
+    }
 
     const titleEl = document.createElement('div');
     titleEl.className = 'page-item-title' + (p.title ? '' : ' empty-title-hint');
@@ -196,15 +341,25 @@ function renderSidebar() {
     const firstLine = (p.content || '').split('\n').find(l => l.trim()) || '';
     previewEl.textContent = clamp(firstLine, 28) || '暂无内容';
 
+    const colorBlock = document.createElement('div');
+    colorBlock.className = 'page-item-color-block';
+    colorBlock.title = '更改颜色';
+    colorBlock.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showColorPicker(p.id, colorBlock);
+    });
+
     const delBtn = document.createElement('button');
-    delBtn.className = 'page-item-delete';
-    delBtn.title = '删除此页';
+    delBtn.className = 'page-item-delete' + (pages.length <= 1 ? ' disabled' : '');
+    delBtn.title = pages.length <= 1 ? '至少需要保留一个页面' : '删除此页';
+    delBtn.disabled = pages.length <= 1;
     delBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 12 12" fill="none">
       <path d="M2 3h8M4.5 3V2.4A.4.4 0 014.9 2h2.2a.4.4 0 01.4.4V3M9.5 3l-.5 6.3A.9.9 0 018.1 10H3.9A.9.9 0 013 9.3L2.5 3"
         stroke="currentColor" stroke-width="1.15" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>`;
     delBtn.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (pages.length <= 1) return;
       pendingDeleteId = p.id;
       const pg = getPage(p.id);
       document.getElementById('confirmTitle').textContent =
@@ -214,6 +369,7 @@ function renderSidebar() {
 
     item.appendChild(titleEl);
     item.appendChild(previewEl);
+    item.appendChild(colorBlock);
     item.appendChild(delBtn);
     item.addEventListener('click', () => {
       if (activeId !== p.id) switchTo(p.id, true);
@@ -261,8 +417,14 @@ function showEmptyState(show) {
   document.querySelector('.paper-margin').style.display = show ? 'none' : '';
   ruledLines.style.display     = show ? 'none' : '';
   pageTitleInput.disabled      = show;
-  btnDeletePage.disabled       = show;
-  btnCopy.disabled             = show;
+  if (show) {
+    btnDeletePage.disabled       = true;
+    btnCopy.disabled             = true;
+  } else {
+    // 当有页面时，根据页面数量决定是否禁用删除按钮
+    btnDeletePage.disabled       = pages.length <= 1;
+    btnCopy.disabled             = false;
+  }
 }
 
 // ═══════════════════════════════════════
@@ -299,6 +461,61 @@ function showToast(msg, ms = 1800) {
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), ms);
 }
 
+// 颜色选择器
+function showColorPicker(pageId, colorBlock) {
+  const colors = [
+    '#5C8E6B',
+    '#C0524A',
+    '#E0A020',
+    '#4A6FA5',
+    '#9C6644',
+    '#6B46C1',
+    '#2D3748',
+    '#718096'
+  ];
+
+  const existingPicker = document.querySelector('.color-picker');
+  if (existingPicker) existingPicker.remove();
+
+  const colorPicker = document.createElement('div');
+  colorPicker.className = 'color-picker';
+
+  const page = getPage(pageId);
+  const currentColor = page?.color || '#5C8E6B';
+
+  colors.forEach(color => {
+    const colorOption = document.createElement('button');
+    colorOption.className = 'color-option' + (color === currentColor ? ' selected' : '');
+    colorOption.style.backgroundColor = color;
+    colorOption.title = color;
+    colorOption.addEventListener('click', () => {
+      if (page) {
+        page.color = color;
+        page.updatedAt = Date.now();
+        renderSidebar();
+        persist();
+      }
+      colorPicker.remove();
+    });
+    colorPicker.appendChild(colorOption);
+  });
+
+  const rect = colorBlock.getBoundingClientRect();
+  colorPicker.style.left = `${rect.right + 8}px`;
+  colorPicker.style.top = `${rect.top}px`;
+
+  document.body.appendChild(colorPicker);
+
+  setTimeout(() => {
+    document.addEventListener('click', function closeColorPicker(e) {
+      if (!colorPicker.contains(e.target) && e.target !== colorBlock) {
+        colorPicker.remove();
+        document.removeEventListener('click', closeColorPicker);
+      }
+    });
+  }, 100);
+}
+
 // ═══════════════════════════════════════
 // Copy
 // ═══════════════════════════════════════
@@ -327,7 +544,7 @@ pageTitleInput.addEventListener('keydown', (e) => {
 btnCopy.addEventListener('click', copyContent);
 
 btnDeletePage.addEventListener('click', () => {
-  if (!activeId) return;
+  if (!activeId || pages.length <= 1) return;
   pendingDeleteId = activeId;
   const p = getPage(activeId);
   document.getElementById('confirmTitle').textContent =

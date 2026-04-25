@@ -131,7 +131,7 @@ html, body {
 .page-item {
   position: relative;
   border-radius: 8px;
-  padding: 8px 26px 8px 10px;
+  padding: 0 26px 0 18px;
   margin-bottom: 3px;
   cursor: pointer;
   transition: background 0.12s;
@@ -151,13 +151,33 @@ html, body {
   box-shadow: 0 1px 4px rgba(28,25,23,0.08);
 }
 
-.page-item.active::before {
-  content: '';
+/* 左侧色块 - 可点击 */
+.page-item-color-block {
   position: absolute;
-  left: 0; top: 22%; bottom: 22%;
-  width: 2.5px;
-  background: var(--sage);
-  border-radius: 0 2px 2px 0;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 0.7%;
+  min-width: 4px;
+  max-width: 8px;
+  border-radius: 8px 0 0 8px;
+  background: var(--page-color, var(--sage));
+  cursor: pointer;
+  transition: transform 0.12s, opacity 0.12s;
+  opacity: 0.7;
+}
+
+.page-item:hover .page-item-color-block,
+.page-item.active .page-item-color-block {
+  opacity: 1;
+}
+
+.page-item-color-block:hover {
+  transform: scaleX(1.3);
+}
+
+.page-item.active .page-item-color-block {
+  opacity: 1;
 }
 
 .page-item-title {
@@ -206,7 +226,78 @@ html, body {
   color: var(--red-soft);
 }
 
-/* Sidebar footer */
+/* 颜色选择器 */
+.color-picker {
+  position: fixed;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 10px;
+  background: var(--cream);
+  border: 1px solid var(--cream-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(28,25,23,0.14), 0 2px 8px rgba(28,25,23,0.06);
+  z-index: 200;
+  animation: colorPickerIn 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes colorPickerIn {
+  from {
+    opacity: 0;
+    transform: scale(0.85) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.color-option {
+  width: 28px;
+  height: 28px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+  padding: 0;
+}
+
+.color-option:hover {
+  transform: scale(1.15);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.color-option.selected {
+  border-color: var(--ink);
+  transform: scale(1.1);
+}
+
+.color-option:active {
+  transform: scale(0.95);
+}
+
+/* 禁用状态 */
+.btn-delete-page:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--ink-light) !important;
+}
+
+.page-item-delete.disabled,
+.page-item-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: transparent !important;
+  color: var(--ink-light) !important;
+}
+
+.page-item:hover .page-item-delete.disabled,
+.page-item.active .page-item-delete.disabled {
+  opacity: 0.5;
+}
+
 .sidebar-footer {
   flex-shrink: 0;
   padding: 8px 12px;
@@ -390,6 +481,28 @@ html, body {
   background: var(--red-ultra) !important;
   border-color: #DDA09A !important;
   color: var(--red-soft) !important;
+}
+
+/* 禁用状态 */
+.btn-delete-page:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: transparent !important;
+  border-color: transparent !important;
+  color: var(--ink-light) !important;
+}
+
+.page-item-delete.disabled,
+.page-item-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: transparent !important;
+  color: var(--ink-light) !important;
+}
+
+.page-item:hover .page-item-delete.disabled,
+.page-item.active .page-item-delete.disabled {
+  opacity: 0.5;
 }
 .btn-icon:active { transform: scale(0.93); }
 
