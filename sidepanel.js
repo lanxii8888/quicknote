@@ -146,20 +146,20 @@ async function savePages() {
     return new Promise((resolve, reject) => {
       const tx = db.transaction('pages', 'readwrite');
       const store = tx.objectStore('pages');
-      
+
       const pageIds = new Set(pages.map(p => p.id));
-      
+
       const getAllRequest = store.getAll();
       getAllRequest.onsuccess = () => {
         const existingPages = getAllRequest.result;
-        
+
         let pending = pages.length + existingPages.length;
-        
+
         if (pending === 0) {
           resolve(true);
           return;
         }
-        
+
         existingPages.forEach(existing => {
           if (!pageIds.has(existing.id)) {
             const deleteReq = store.delete(existing.id);
@@ -179,7 +179,7 @@ async function savePages() {
             }
           }
         });
-        
+
         pages.forEach(page => {
           const putReq = store.put(page);
           putReq.onsuccess = () => {
@@ -343,7 +343,7 @@ function updateActiveContent() {
   if (!p) return;
   p.content = htmlToMarkdown(noteEditor.innerHTML);
   p.updatedAt = Date.now();
-  charCountEl.textContent = `${p.content.length} 字`;
+  charCountEl.textContent = `${stripMarkdown(p.content).length} 字`;
   const item = pageListEl.querySelector(`[data-id="${activeId}"]`);
   if (item) {
     const prev = item.querySelector('.page-item-preview');
@@ -622,7 +622,7 @@ function switchTo(id, saveCurrent) {
   showEmptyState(false);
   pageTitleInput.value = p.title;
   noteEditor.innerHTML = markdownToHtml(p.content);
-  charCountEl.textContent = `${p.content.length} 字`;
+  charCountEl.textContent = `${stripMarkdown(p.content).length} 字`;
   noteEditor.focus();
 
   const range = document.createRange();
