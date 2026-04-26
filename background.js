@@ -1,10 +1,6 @@
 // 轻笔记 — Background Service Worker
 
-chrome.runtime.onInstalled.addListener((details) => {
-  if (details.reason === 'install') {
-    chrome.storage.local.set({ note: '', lastSaved: null, installTime: Date.now() });
-  }
-  // Enable side panel for all tabs by default
+chrome.runtime.onInstalled.addListener(() => {
   chrome.sidePanel.setOptions({ enabled: true });
 });
 

@@ -5,34 +5,83 @@
 // ═══════════════════════════════════════
 // State
 // ═══════════════════════════════════════
-let pages        = [];
-let activeId     = null;
-let sidebarOpen  = false;   // default: closed
-let saveTimer    = null;
-let toastTimer   = null;
+let pages = [];
+let activeId = null;
+let sidebarOpen = false;   // default: closed
+let saveTimer = null;
+let toastTimer = null;
 let pendingDeleteId = null;
+let searchTimer = null;
+let currentTheme = 'auto';
 
 // ═══════════════════════════════════════
 // DOM
 // ═══════════════════════════════════════
-const appEl           = document.getElementById('app');
-const sidebarEl       = document.getElementById('sidebar');
-const pageListEl      = document.getElementById('pageList');
-const noteEditor      = document.getElementById('noteEditor');
-const pageTitleInput  = document.getElementById('pageTitleInput');
-const charCountEl     = document.getElementById('charCount');
-const saveIndicator   = document.getElementById('saveIndicator');
-const saveText        = document.getElementById('saveText');
-const btnAddPage      = document.getElementById('btnAddPage');
-const btnCopy         = document.getElementById('btnCopy');
-const btnDeletePage   = document.getElementById('btnDeletePage');
+const appEl = document.getElementById('app');
+const sidebarEl = document.getElementById('sidebar');
+const pageListEl = document.getElementById('pageList');
+const noteEditor = document.getElementById('noteEditor');
+const noteEditorHidden = document.getElementById('noteEditorHidden');
+const pageTitleInput = document.getElementById('pageTitleInput');
+const charCountEl = document.getElementById('charCount');
+const saveIndicator = document.getElementById('saveIndicator');
+const saveText = document.getElementById('saveText');
+const btnAddPage = document.getElementById('btnAddPage');
+const btnCopy = document.getElementById('btnCopy');
+const btnDeletePage = document.getElementById('btnDeletePage');
 const btnSidebarToggle = document.getElementById('btnSidebarToggle');
-const overlay         = document.getElementById('overlay');
-const btnCancel       = document.getElementById('btnCancel');
-const btnConfirm      = document.getElementById('btnConfirm');
-const toastEl         = document.getElementById('toast');
-const emptyState      = document.getElementById('emptyState');
-const ruledLines      = document.getElementById('ruledLines');
+const overlay = document.getElementById('overlay');
+const btnCancel = document.getElementById('btnCancel');
+const btnConfirm = document.getElementById('btnConfirm');
+const toastEl = document.getElementById('toast');
+const emptyState = document.getElementById('emptyState');
+const ruledLines = document.getElementById('ruledLines');
+const searchInput = document.getElementById('searchInput');
+const searchClear = document.getElementById('searchClear');
+const themeAuto = document.getElementById('themeAuto');
+const themeLight = document.getElementById('themeLight');
+const themeDark = document.getElementById('themeDark');
+
+// ═══════════════════════════════════════
+// Theme
+// ═══════════════════════════════════════
+function getSystemTheme() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  let effectiveTheme = theme;
+
+  if (theme === 'auto') {
+    effectiveTheme = getSystemTheme();
+  }
+
+  document.documentElement.setAttribute('data-theme', effectiveTheme);
+
+  themeAuto.classList.toggle('active', theme === 'auto');
+  themeLight.classList.toggle('active', theme === 'light');
+  themeDark.classList.toggle('active', theme === 'dark');
+}
+
+async function setTheme(theme, save = true) {
+  currentTheme = theme;
+  applyTheme(theme);
+  if (save) {
+    await saveSettings('theme', theme);
+  }
+}
+
+async function loadTheme() {
+  const savedTheme = await loadSetting('theme', 'auto');
+  currentTheme = savedTheme;
+  applyTheme(savedTheme);
+}
+
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  if (currentTheme === 'auto') {
+    applyTheme('auto');
+  }
+});
 
 // ═══════════════════════════════════════
 // Sidebar toggle
@@ -73,17 +122,17 @@ const DB_VERSION = 1;
 function openDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    
+
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
-    
+
     request.onupgradeneeded = (event) => {
       const db = event.target.result;
-      
+
       if (!db.objectStoreNames.contains('pages')) {
         db.createObjectStore('pages', { keyPath: 'id' });
       }
-      
+
       if (!db.objectStoreNames.contains('settings')) {
         db.createObjectStore('settings');
       }
@@ -94,15 +143,57 @@ function openDB() {
 async function savePages() {
   try {
     const db = await openDB();
-    const tx = db.transaction('pages', 'readwrite');
-    const store = tx.objectStore('pages');
-    
-    for (const page of pages) {
-      await store.put(page);
-    }
-    
-    await tx.complete;
-    return true;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('pages', 'readwrite');
+      const store = tx.objectStore('pages');
+      
+      const pageIds = new Set(pages.map(p => p.id));
+      
+      const getAllRequest = store.getAll();
+      getAllRequest.onsuccess = () => {
+        const existingPages = getAllRequest.result;
+        
+        let pending = pages.length + existingPages.length;
+        
+        if (pending === 0) {
+          resolve(true);
+          return;
+        }
+        
+        existingPages.forEach(existing => {
+          if (!pageIds.has(existing.id)) {
+            const deleteReq = store.delete(existing.id);
+            deleteReq.onsuccess = () => {
+              pending--;
+              if (pending === 0) {
+                tx.oncomplete = () => resolve(true);
+                tx.onerror = () => reject(tx.error);
+              }
+            };
+            deleteReq.onerror = () => reject(deleteReq.error);
+          } else {
+            pending--;
+            if (pending === 0) {
+              tx.oncomplete = () => resolve(true);
+              tx.onerror = () => reject(tx.error);
+            }
+          }
+        });
+        
+        pages.forEach(page => {
+          const putReq = store.put(page);
+          putReq.onsuccess = () => {
+            pending--;
+            if (pending === 0) {
+              tx.oncomplete = () => resolve(true);
+              tx.onerror = () => reject(tx.error);
+            }
+          };
+          putReq.onerror = () => reject(putReq.error);
+        });
+      };
+      getAllRequest.onerror = () => reject(getAllRequest.error);
+    });
   } catch (error) {
     console.error('Error saving pages:', error);
     return false;
@@ -112,12 +203,16 @@ async function savePages() {
 async function saveSettings(key, value) {
   try {
     const db = await openDB();
-    const tx = db.transaction('settings', 'readwrite');
-    const store = tx.objectStore('settings');
-    
-    await store.put(value, key);
-    await tx.complete;
-    return true;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('settings', 'readwrite');
+      const store = tx.objectStore('settings');
+      const request = store.put(value, key);
+      request.onsuccess = () => {
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => reject(tx.error);
+      };
+      request.onerror = () => reject(request.error);
+    });
   } catch (error) {
     console.error('Error saving settings:', error);
     return false;
@@ -127,11 +222,16 @@ async function saveSettings(key, value) {
 async function loadPages() {
   try {
     const db = await openDB();
-    const tx = db.transaction('pages', 'readonly');
-    const store = tx.objectStore('pages');
-    const allPages = await store.getAll();
-    
-    return allPages.length > 0 ? allPages : [createPage('笔记 1', '')];
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('pages', 'readonly');
+      const store = tx.objectStore('pages');
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const allPages = request.result;
+        resolve(allPages.length > 0 ? allPages : [createPage('笔记 1', '')]);
+      };
+      request.onerror = () => reject(request.error);
+    });
   } catch (error) {
     console.error('Error loading pages:', error);
     return [createPage('笔记 1', '')];
@@ -141,11 +241,16 @@ async function loadPages() {
 async function loadSetting(key, defaultValue) {
   try {
     const db = await openDB();
-    const tx = db.transaction('settings', 'readonly');
-    const store = tx.objectStore('settings');
-    const value = await store.get(key);
-    
-    return value !== undefined ? value : defaultValue;
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('settings', 'readonly');
+      const store = tx.objectStore('settings');
+      const request = store.get(key);
+      request.onsuccess = () => {
+        const value = request.result;
+        resolve(value !== undefined ? value : defaultValue);
+      };
+      request.onerror = () => reject(request.error);
+    });
   } catch (error) {
     console.error('Error loading setting:', error);
     return defaultValue;
@@ -167,70 +272,27 @@ function persist() {
 
 async function loadAll() {
   try {
-    // 检查是否需要从 chrome.storage.local 迁移
-    const migrationNeeded = await checkMigrationNeeded();
-    if (migrationNeeded) {
-      await migrateFromChromeStorage();
-    }
-    
+    await loadTheme();
+
     pages = await loadPages();
     activeId = await loadSetting('activeId', pages[0].id);
     if (!getPage(activeId)) activeId = pages[0].id;
-    
+
     const sidebarOpen = await loadSetting('sidebarOpen', false);
     setSidebarOpen(sidebarOpen, false);
-    
+
     renderSidebar();
     switchTo(activeId, false);
     setSaveState('saved');
   } catch (error) {
     console.error('Error loading data:', error);
-    // 降级到默认数据
+    await loadTheme();
     pages = [createPage('笔记 1', '')];
     activeId = pages[0].id;
     setSidebarOpen(false, false);
     renderSidebar();
     switchTo(activeId, false);
     setSaveState('saved');
-  }
-}
-
-// 迁移相关函数
-async function checkMigrationNeeded() {
-  try {
-    const db = await openDB();
-    const tx = db.transaction('settings', 'readonly');
-    const store = tx.objectStore('settings');
-    const migrated = await store.get('migrated');
-    return migrated !== true;
-  } catch (error) {
-    return true;
-  }
-}
-
-async function migrateFromChromeStorage() {
-  try {
-    return new Promise((resolve) => {
-      chrome.storage.local.get(['pages', 'activeId', 'sidebarOpen'], async (result) => {
-        if (result.pages) {
-          pages = result.pages;
-          await savePages();
-        }
-        if (result.activeId) {
-          activeId = result.activeId;
-          await saveSettings('activeId', activeId);
-        }
-        if (result.sidebarOpen !== undefined) {
-          await saveSettings('sidebarOpen', result.sidebarOpen);
-        }
-        
-        // 标记迁移完成
-        await saveSettings('migrated', true);
-        resolve();
-      });
-    });
-  } catch (error) {
-    console.error('Migration error:', error);
   }
 }
 
@@ -279,10 +341,9 @@ function deletePage(id) {
 function updateActiveContent() {
   const p = getPage(activeId);
   if (!p) return;
-  p.content = noteEditor.value;
+  p.content = htmlToMarkdown(noteEditor.innerHTML);
   p.updatedAt = Date.now();
   charCountEl.textContent = `${p.content.length} 字`;
-  // Refresh sidebar preview
   const item = pageListEl.querySelector(`[data-id="${activeId}"]`);
   if (item) {
     const prev = item.querySelector('.page-item-preview');
@@ -312,12 +373,171 @@ function updateActiveTitle() {
 
 // ═══════════════════════════════════════
 // Render sidebar
-// ═══════════════════════════════════════
+// ═════════════════════════════ĀĀ══════════
+function escapeRegExp(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function highlightText(text, query) {
+  if (!query) return escapeHtml(text);
+  const regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
+  return escapeHtml(text).replace(regex, '<mark>$1</mark>');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function htmlToMarkdown(html) {
+  const div = document.createElement('div');
+  div.innerHTML = html;
+
+  let markdown = '';
+
+  div.childNodes.forEach(node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      markdown += node.textContent;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const tag = node.tagName.toLowerCase();
+
+      if (tag === 'img') {
+        const src = node.getAttribute('src') || '';
+        const alt = node.getAttribute('alt') || 'image';
+        markdown += `![${alt}](${src})`;
+      } else if (tag === 'br') {
+        markdown += '\n';
+      } else if (tag === 'div' || tag === 'p') {
+        markdown += htmlToMarkdown(node.innerHTML) + '\n';
+      } else {
+        markdown += node.textContent;
+      }
+    }
+  });
+
+  return markdown.trim();
+}
+
+function markdownToHtml(markdown) {
+  let html = escapeHtml(markdown);
+
+  const imgRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  html = html.replace(imgRegex, (match, alt, src) => {
+    return `<img src="${src}" alt="${alt}" />`;
+  });
+
+  html = html.replace(/\n/g, '<br>');
+
+  return html;
+}
+
+function stripMarkdown(text) {
+  let stripped = text;
+
+  stripped = stripped.replace(/!\[([^\]]*)\]\([^)]+\)/g, '');
+
+  stripped = stripped.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+
+  stripped = stripped.replace(/[#*_~`>]/g, '');
+
+  stripped = stripped.replace(/```[\s\S]*?```/g, '');
+
+  stripped = stripped.replace(/`[^`]+`/g, '');
+
+  stripped = stripped.replace(/^\s*[-*+]\s+/gm, '');
+  stripped = stripped.replace(/^\s*\d+\.\s+/gm, '');
+
+  stripped = stripped.replace(/^\s*#+\s+/gm, '');
+
+  return stripped.trim();
+}
+
+function getContextAroundMatch(text, query, maxLength = 28) {
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const matchIndex = lowerText.indexOf(lowerQuery);
+
+  if (matchIndex === -1) {
+    return { text: text.substring(0, maxLength) || '暂无内容', highlightNeeded: false };
+  }
+
+  const contextBefore = 8;
+  const contextAfter = 20;
+
+  let start = Math.max(0, matchIndex - contextBefore);
+  let end = Math.min(text.length, matchIndex + query.length + contextAfter);
+
+  let excerpt = '';
+  if (start > 0) excerpt += '…';
+  excerpt += text.substring(start, end);
+  if (end < text.length) excerpt += '…';
+
+  return { text: excerpt, highlightNeeded: true };
+}
+
+function filterPages(query) {
+  const items = pageListEl.querySelectorAll('.page-item');
+  let visibleCount = 0;
+  const lowerQuery = query.toLowerCase();
+
+  items.forEach(item => {
+    const id = item.dataset.id;
+    const page = getPage(id);
+    if (!page) return;
+
+    const title = page.title || '';
+    const content = page.content || '';
+    const strippedContent = stripMarkdown(content);
+    const lines = strippedContent.split('\n');
+    const firstLine = lines.find(l => l.trim()) || '';
+
+    const titleLower = title.toLowerCase();
+    const strippedContentLower = strippedContent.toLowerCase();
+    const titleMatchIdx = titleLower.indexOf(lowerQuery);
+    const contentMatchIdx = strippedContentLower.indexOf(lowerQuery);
+
+    const titleMatched = titleMatchIdx !== -1;
+    const contentMatched = contentMatchIdx !== -1;
+
+    if (!query || titleMatched || contentMatched) {
+      item.style.display = '';
+      visibleCount++;
+
+      const titleEl = item.querySelector('.page-item-title');
+      const previewEl = item.querySelector('.page-item-preview');
+
+      if (query) {
+        titleEl.innerHTML = highlightText(title || '无标题', query);
+
+        let previewText = '';
+
+        if (titleMatched) {
+          previewText = getContextAroundMatch(title, query, 28).text;
+        } else if (contentMatched) {
+          previewText = getContextAroundMatch(strippedContent, query, 28).text;
+        }
+
+        previewEl.innerHTML = highlightText(previewText, query);
+      } else {
+        titleEl.textContent = title || '无标题';
+        previewEl.textContent = clamp(firstLine, 28) || '暂无内容';
+      }
+    } else {
+      item.style.display = 'none';
+    }
+  });
+
+  if (query && visibleCount === 0) {
+    showToast('未找到匹配的笔记');
+  }
+}
+
 function renderSidebar() {
   pageListEl.innerHTML = '';
   const hasPagesFlag = pages.length > 0;
   btnSidebarToggle.classList.toggle('has-pages', hasPagesFlag);
-  
+
   // 当只有一个页面时，禁用顶部删除按钮
   btnDeletePage.disabled = pages.length <= 1;
 
@@ -325,7 +545,7 @@ function renderSidebar() {
     const item = document.createElement('div');
     item.className = 'page-item' + (p.id === activeId ? ' active' : '');
     item.dataset.id = p.id;
-    
+
     // 设置页面左侧色块颜色
     if (p.color) {
       item.style.setProperty('--page-color', p.color);
@@ -388,7 +608,7 @@ function renderSidebar() {
 function switchTo(id, saveCurrent) {
   if (saveCurrent && activeId) {
     const prev = getPage(activeId);
-    if (prev) prev.content = noteEditor.value;
+    if (prev) prev.content = htmlToMarkdown(noteEditor.innerHTML);
   }
 
   activeId = id;
@@ -401,10 +621,17 @@ function switchTo(id, saveCurrent) {
 
   showEmptyState(false);
   pageTitleInput.value = p.title;
-  noteEditor.value = p.content;
+  noteEditor.innerHTML = markdownToHtml(p.content);
   charCountEl.textContent = `${p.content.length} 字`;
   noteEditor.focus();
-  noteEditor.setSelectionRange(p.content.length, p.content.length);
+
+  const range = document.createRange();
+  const sel = window.getSelection();
+  range.selectNodeContents(noteEditor);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+
   if (p.content.length > 0) noteEditor.scrollTop = noteEditor.scrollHeight;
 }
 
@@ -413,17 +640,17 @@ function switchTo(id, saveCurrent) {
 // ═══════════════════════════════════════
 function showEmptyState(show) {
   emptyState.hidden = !show;
-  noteEditor.style.display     = show ? 'none' : '';
+  noteEditor.style.display = show ? 'none' : '';
   document.querySelector('.paper-margin').style.display = show ? 'none' : '';
-  ruledLines.style.display     = show ? 'none' : '';
-  pageTitleInput.disabled      = show;
+  ruledLines.style.display = show ? 'none' : '';
+  pageTitleInput.disabled = show;
   if (show) {
-    btnDeletePage.disabled       = true;
-    btnCopy.disabled             = true;
+    btnDeletePage.disabled = true;
+    btnCopy.disabled = true;
   } else {
     // 当有页面时，根据页面数量决定是否禁用删除按钮
-    btnDeletePage.disabled       = pages.length <= 1;
-    btnCopy.disabled             = false;
+    btnDeletePage.disabled = pages.length <= 1;
+    btnCopy.disabled = false;
   }
 }
 
@@ -440,7 +667,7 @@ function setSaveState(state) {
 // ═══════════════════════════════════════
 function buildRuledLines() {
   ruledLines.innerHTML = '';
-  const lineH  = 30;
+  const lineH = 30;
   const topOff = 6 + lineH;
   const n = Math.ceil(window.innerHeight / lineH) + 4;
   for (let i = 0; i < n; i++) {
@@ -520,7 +747,7 @@ function showColorPicker(pageId, colorBlock) {
 // Copy
 // ═══════════════════════════════════════
 async function copyContent() {
-  const text = noteEditor.value;
+  const text = htmlToMarkdown(noteEditor.innerHTML);
   if (!text.trim()) { showToast('笔记内容为空'); return; }
   try { await navigator.clipboard.writeText(text); }
   catch { noteEditor.select(); document.execCommand('copy'); }
@@ -535,7 +762,78 @@ async function copyContent() {
 btnSidebarToggle.addEventListener('click', toggleSidebar);
 btnAddPage.addEventListener('click', addPage);
 
+themeAuto.addEventListener('click', async () => await setTheme('auto'));
+themeLight.addEventListener('click', async () => await setTheme('light'));
+themeDark.addEventListener('click', async () => await setTheme('dark'));
+
+searchInput.addEventListener('input', () => {
+  const query = searchInput.value.trim().toLowerCase();
+  searchClear.hidden = !query;
+
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    filterPages(query);
+  }, 500);
+});
+
+searchClear.addEventListener('click', () => {
+  searchInput.value = '';
+  searchClear.hidden = true;
+  filterPages('');
+  searchInput.focus();
+});
+
 noteEditor.addEventListener('input', updateActiveContent);
+
+noteEditor.addEventListener('paste', async (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+
+      const file = item.getAsFile();
+      if (!file) continue;
+
+      try {
+        const base64 = await fileToBase64(file);
+
+        const img = document.createElement('img');
+        img.src = base64;
+        img.alt = 'image';
+
+        const selection = window.getSelection();
+        if (selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(img);
+          range.collapse(false);
+        } else {
+          noteEditor.appendChild(img);
+        }
+
+        noteEditor.focus();
+        updateActiveContent();
+        showToast('图片已插入');
+      } catch (error) {
+        console.error('Image paste error:', error);
+        showToast('图片插入失败');
+      }
+      return;
+    }
+  }
+});
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 pageTitleInput.addEventListener('input', updateActiveTitle);
 pageTitleInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { noteEditor.focus(); e.preventDefault(); }
